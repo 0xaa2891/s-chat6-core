@@ -66,8 +66,22 @@ cd "${CHUTNEY}"
 chmod +x chutney 2>/dev/null || true
 
 ./chutney configure "${NETWORK}"
-./chutney start "${NETWORK}"
-./chutney wait_for_bootstrap "${NETWORK}"
+ok=0
+for attempt in 1 2 3; do
+  echo "chutney start/bootstrap attempt ${attempt}/3" >&2
+  ./chutney start "${NETWORK}" || true
+  if ./chutney wait_for_bootstrap "${NETWORK}"; then
+    ok=1
+    break
+  fi
+  echo "bootstrap failed; stopping and retrying" >&2
+  ./chutney stop "${NETWORK}" || true
+  sleep 5
+done
+if [[ "${ok}" -ne 1 ]]; then
+  echo "chutney bootstrap failed after 3 attempts" >&2
+  exit 255
+fi
 # Onion-only nets have no exits; chutney's verify.py tries SOCKS→exit traffic.
 if ./chutney verify "${NETWORK}"; then
   :
