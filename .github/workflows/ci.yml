@@ -29,8 +29,9 @@ jobs:
       # renamed away (cargo happily runs 0 tests), so fail on that.
       - name: memory audit (locked-state vault canary)
         run: |
-          cargo test -p schat-core locked_state_holds_no_plaintext_canary -- --nocapture 2>&1 | tee target/memory-audit.log
-          ! grep -q "running 0 tests" target/memory-audit.log
+          set -o pipefail
+          cargo test -p schat-core --lib locked_state_holds_no_plaintext_canary -- --nocapture | tee target/memory-audit.log
+          grep -q "locked_state_holds_no_plaintext_canary ... ok" target/memory-audit.log
       - name: cli ping
         run: cargo run -p schat-cli -- ping
       # API docs must build warning-free (broken intra-doc links fail).
