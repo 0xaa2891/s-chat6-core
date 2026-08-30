@@ -1,0 +1,170 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      # libsignal-protocol's prost-build needs protoc.
+      - name: install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+      # The locked-state memory audit must be named explicitly in PR
+      # CI. The name filter alone would silently pass if the test were
+      # renamed away (cargo happily runs 0 tests), so fail on that.
+      - name: memory audit (locked-state vault canary)
+        run: |
+          cargo test -p schat-core locked_state_holds_no_plaintext_canary -- --nocapture 2>&1 | tee target/memory-audit.log
+          ! grep -q "running 0 tests" target/memory-audit.log
+      - name: cli ping
+        run: cargo run -p schat-cli -- ping
+      # API docs must build warning-free (broken intra-doc links fail).
+      - name: api docs
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+      - name: UniFFI Kotlin + Python (host)
+        run: |
+          cargo build -p schat-core
+          cargo run -p schat-core --bin uniffi-bindgen -- generate \
+            --library target/debug/libschat_core.so \
+            --language kotlin \
+            --out-dir target/uniffi/kotlin \
+            --no-format
+          cargo run -p schat-core --bin uniffi-bindgen -- generate \
+            --library target/debug/libschat_core.so \
+            --language python \
+            --out-dir target/uniffi/python \
+            --no-format
+          test -n "$(find target/uniffi/kotlin -name '*.kt' | head -n 1)"
+          test -n "$(find target/uniffi/python -name '*.py' | head -n 1)"
+
+  # Shared testnet setup is inlined per job below. SCHAT_CHUTNEY_NODES is
+  # derived from the chutney data dir: run-testnet.sh only overrides
+  # CHUTNEY_DATA_DIR when the workspace path contains spaces (never in
+  # GitHub runners), so the nodes land in tools/testnet/chutney/net/nodes.
+  testnet-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: install protoc + tor
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler tor
+      - uses: Swatinem/rust-cache@v2
+      - name: chutney s-chat6-min
+        run: |
+          chmod +x tools/testnet/run-testnet.sh
+          ./tools/testnet/run-testnet.sh s-chat6-min
+      # Smoke suites on every PR: bootstrap, raw transport, pairing.
+      # --test-threads=1: chutney's mininet does not tolerate parallel
+      # bootstrap storms well.
+      - name: testnet smoke suites
+        env:
+          SCHAT_CHUTNEY_NODES: ${{ github.workspace }}/tools/testnet/chutney/net/nodes
+          SCHAT_REQUIRE_TOR_SMOKE: "1"
+        run: |
+          test -d "${SCHAT_CHUTNEY_NODES}"
+          cargo test -p schat-test-harness \
+            --test tor_smoke --test transport_testnet --test pairing_testnet \
+            -- --test-threads=1
+      - name: stop
+        if: always()
+        run: ./tools/testnet/run-testnet.sh --stop s-chat6-min || true
+
+  testnet-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: install protoc + tor
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler tor
+      - uses: Swatinem/rust-cache@v2
+      - name: chutney s-chat6-min
+        run: |
+          chmod +x tools/testnet/run-testnet.sh
+          ./tools/testnet/run-testnet.sh s-chat6-min
+      # Full suites on PR: sync + feature matrix + the fast gates
+      # (ratelimit calibration ≈10 s, adversarial flood ≈20 s on a
+      # mininet). The heavy suites (reliability / latency, many scenarios
+      # and ≥200 latency samples) would push this job past 60 min against
+      # a 4-relay mininet, so they run in nightly.yml against s-chat6-full
+      # (8 relays) instead — a deliberate scope cut for PR CI, documented
+      # here.
+      - name: testnet full suites
+        env:
+          SCHAT_CHUTNEY_NODES: ${{ github.workspace }}/tools/testnet/chutney/net/nodes
+        run: |
+          test -d "${SCHAT_CHUTNEY_NODES}"
+          cargo test -p schat-test-harness \
+            --test sync_testnet --test feature_matrix_testnet \
+            --test ratelimit_testnet --test adversarial_testnet \
+            -- --test-threads=1
+      - name: stop
+        if: always()
+        run: ./tools/testnet/run-testnet.sh --stop s-chat6-min || true
+
+  # Dependency advisory policy: known VULNERABILITIES fail the build;
+  # `unmaintained` advisories are warnings only (cargo audit's default exit
+  # policy — it exits non-zero on vulnerabilities, zero on warnings).
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
+
+  ndk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r27c
+          add-to-path: false
+      # libsignal-protocol's prost-build needs protoc.
+      - name: install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo-ndk
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cargo install cargo-ndk --locked
+          cargo ndk -t arm64-v8a -t x86_64 build -p schat-core

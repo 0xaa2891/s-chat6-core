@@ -1,0 +1,3 @@
+[submodule "tools/testnet/chutney"]
+	path = tools/testnet/chutney
+	url = https://github.com/torproject/chutney.git

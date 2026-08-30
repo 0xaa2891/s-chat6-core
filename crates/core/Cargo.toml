@@ -1,0 +1,49 @@
+[package]
+name = "schat-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Platformless s//chat6 messenger library (UniFFI / cdylib)"
+
+[lib]
+name = "schat_core"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[dependencies]
+uniffi = { workspace = true, features = ["cli"] }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+zeroize.workspace = true
+sha3.workspace = true
+data-encoding.workspace = true
+rand.workspace = true
+image.workspace = true
+gif.workspace = true
+qrcode.workspace = true
+schat-wire-types = { path = "../wire-types" }
+rusqlite.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+x25519-dalek.workspace = true
+curve25519-dalek.workspace = true
+sha2.workspace = true
+libsignal-protocol.workspace = true
+rand_core.workspace = true
+bs58.workspace = true
+aes-gcm.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true
+
+# Locked-state memory audit: reading our own address space on macOS
+# goes through the mach VM API (test-only).
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+mach2 = "0.4.2"

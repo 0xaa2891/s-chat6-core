@@ -1,0 +1,11 @@
+# networks/s-chat6-min — 3 authorities, 4 relays, 2 clients (fast)
+
+# Offset ports off macOS Control Center (TCP 5000).
+_PORTS = dict(orport_base=15000, dirport_base=17000, controlport_base=18000, socksport_base=19000)
+Authority = Node(tag="a", authority=1, relay=1, torrc="authority.tmpl", **_PORTS)
+NonExitRelay = Node(tag="r", relay=1, torrc="relay-non-exit.tmpl", **_PORTS)
+Client = Node(tag="c", client=1, torrc="client.tmpl", **_PORTS)
+
+NODES = Authority.getN(3) + NonExitRelay.getN(4) + Client.getN(2)
+
+ConfigureNodes(NODES)

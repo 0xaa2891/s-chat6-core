@@ -1,0 +1,15 @@
+[package]
+name = "schat-wire-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Shared inner payload types (no serde on the wire)"
+
+[dependencies]
+thiserror.workspace = true
+sha2.workspace = true
+unicode-normalization.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

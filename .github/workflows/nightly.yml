@@ -1,0 +1,128 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  # Full testnet suite against s-chat6-full (8 relays), including the
+  # heavy suites (reliability / latency / ratelimit / adversarial) that are
+  # too slow for PR CI. Suites whose test file has not landed yet are
+  # skipped with a note rather than failing the job — they are being added
+  # concurrently; once present they run like the rest.
+  testnet-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: install protoc + tor
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler tor
+      - uses: Swatinem/rust-cache@v2
+      - name: chutney s-chat6-full (8 relays)
+        run: |
+          chmod +x tools/testnet/run-testnet.sh
+          ./tools/testnet/run-testnet.sh s-chat6-full
+      - name: run all testnet suites
+        env:
+          SCHAT_CHUTNEY_NODES: ${{ github.workspace }}/tools/testnet/chutney/net/nodes
+          SCHAT_REQUIRE_TOR_SMOKE: "1"
+        run: |
+          set -e
+          test -d "${SCHAT_CHUTNEY_NODES}"
+          suites="tor_smoke transport_testnet pairing_testnet sync_testnet \
+                  feature_matrix_testnet reliability_testnet latency_testnet \
+                  ratelimit_testnet adversarial_testnet"
+          args=""
+          for t in ${suites}; do
+            if [ -f "crates/test-harness/tests/${t}.rs" ]; then
+              args="${args} --test ${t}"
+            else
+              echo "::notice::suite ${t} not present yet, skipping"
+            fi
+          done
+          # shellcheck disable=SC2086
+          cargo test -p schat-test-harness ${args} -- --test-threads=1
+      - name: stop
+        if: always()
+        run: ./tools/testnet/run-testnet.sh --stop s-chat6-full || true
+
+  # Shadow chaos. Honest scope: Shadow publishes no
+  # precompiled tarballs, so we build it from source (cached). The job
+  # validates s-chat6-shadow.yaml, renders per-node torrcs from a
+  # chutney-configured s-chat6-min nodes dir (real authority keys, nothing
+  # booted), and runs the 30-simulated-minute config. If the Shadow build
+  # breaks upstream, the config-validation steps still run and the manual
+  # path in tools/testnet/shadow/README.md applies.
+  shadow-chaos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: install tor + shadow build deps
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            tor cmake findutils libclang-dev libc-dbg libglib2.0-0 \
+            libglib2.0-dev make netbase python3-networkx xz-utils \
+            util-linux gcc g++
+      - name: validate s-chat6-shadow.yaml parses
+        run: |
+          pip install pyyaml
+          python3 -c "import yaml; yaml.safe_load(open('tools/testnet/shadow/s-chat6-shadow.yaml')); print('yaml ok')"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.local/bin/shadow
+          key: shadow-v3.3.0-${{ runner.os }}
+      - name: build shadow (cached; source-only distribution)
+        id: shadow_build
+        run: |
+          if command -v shadow >/dev/null 2>&1 || [ -x "$HOME/.local/bin/shadow" ]; then
+            echo "shadow already built (cache hit)"
+          else
+            git clone --depth 1 --branch v3.3.0 https://github.com/shadow/shadow.git /tmp/shadow-src
+            cd /tmp/shadow-src
+            ./setup build
+            ./setup install
+          fi
+          export PATH="$HOME/.local/bin:$PATH"
+          shadow --version
+      - name: render per-node torrcs from chutney s-chat6-min
+        run: |
+          set -e
+          cd tools/testnet
+          PYTHONPATH=pycompat ./chutney/chutney configure networks/s-chat6-min
+          NODES="${CHUTNEY_DATA_DIR:-$PWD/chutney/net}/nodes"
+          mkdir -p shadow/rendered
+          # Map chutney nodes (000a..002a, 003r..006r, 007c..008c) onto the
+          # shadow host names used by s-chat6-shadow.yaml.
+          names="auth1 auth2 auth3 relay1 relay2 relay3 relay4 client1 client2"
+          i=0
+          for node in "${NODES}"/*/; do
+            name=$(echo ${names} | cut -d' ' -f$((i+1)))
+            [ -n "${name}" ] || break
+            # Rewrite data/log paths into the shadow host working dir;
+            # shadow runs each host's processes under
+            # shadow.data/hosts/<name>/.
+            sed -e "s|${NODES}/[^/]*|/tmp/shadow-${name}|g" \
+                -e 's|^Log .*|Log notice stdout|' \
+                "${node}/torrc" > "shadow/rendered/${name}.torrc"
+            i=$((i+1))
+          done
+          ls -l shadow/rendered/
+      - name: run shadow chaos config
+        working-directory: tools/testnet/shadow
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          shadow -d shadow.data s-chat6-shadow.yaml

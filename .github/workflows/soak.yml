@@ -1,0 +1,66 @@
+name: soak
+
+# Real-Tor soak. NEVER triggered by pull_request or push — this
+# workflow must not block PR merges, and CI must never touch the real Tor
+# network as a side effect of normal development. Weekly cron runs the
+# --smoke plumbing check only; the full 48/72 h soak is workflow_dispatch.
+
+on:
+  workflow_dispatch:
+    inputs:
+      smoke:
+        description: "Run the 2-instance / 10-minute plumbing smoke instead of a full soak"
+        type: boolean
+        default: true
+      instances:
+        description: "Instance count (full soak only)"
+        default: "20"
+      duration_hours:
+        description: "Soak duration in hours (full soak only; 72 preferred before release)"
+        default: "48"
+  schedule:
+    - cron: '41 2 * * 0'   # weekly, Sunday 02:41 UTC — smoke only
+
+jobs:
+  real-tor-soak:
+    # A dedicated self-hosted runner is strongly preferred for the full
+    # soak: GitHub-hosted runners cap jobs at 360 minutes, so a 48 h soak
+    # cannot complete here. On ubuntu-latest this job runs --smoke
+    # regardless of inputs; full soaks must target a self-hosted label.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - name: install protoc + tor
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler tor
+      - uses: Swatinem/rust-cache@v2
+      - name: soak (smoke on GitHub-hosted runners)
+        env:
+          SCHAT_REAL_TOR: "1"
+        run: |
+          chmod +x tools/soak/real-tor/soak.sh
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.smoke }}" = "true" ]; then
+            tools/soak/real-tor/soak.sh --real-tor --smoke
+          else
+            # Will be killed by the 360-minute hosted-runner cap; see the
+            # runs-on comment above. Kept for self-hosted retargeting.
+            tools/soak/real-tor/soak.sh --real-tor \
+              --instances "${{ inputs.instances }}" \
+              --duration "${{ inputs.duration_hours }}"
+          fi
+      - name: upload soak artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-${{ github.run_id }}
+          path: |
+            target/soak/**/metrics/*.jsonl
+            target/soak/**/ledger/*.jsonl*
+            target/soak/**/report.json
+            target/soak/**/soak-report.md
+            target/soak/**/events.log
+            target/soak/**/instances/*/daemon.log
+          if-no-files-found: warn

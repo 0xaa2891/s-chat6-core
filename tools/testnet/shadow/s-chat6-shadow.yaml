@@ -1,0 +1,142 @@
+# s-chat6-shadow.yaml — Shadow chaos config modeling the
+# s-chat6-min Chutney topology (3 directory authorities, 4 relays, headless
+# clients) with injected latency/jitter/loss and relay-death scheduling.
+#
+# Shadow 3.x schema (shadow.github.io, Linux-only). Validated in the nightly
+# Linux job (.github/workflows/nightly.yml, job `shadow-chaos`), NOT locally
+# on macOS — Shadow does not run on macOS at all.
+#
+# Per-node torrcs are NOT checked in: tor directory authorities need real,
+# pre-generated identity keys. The nightly job renders them from a
+# Chutney-configured s-chat6-min nodes dir (`./chutney configure` generates
+# authority keys without booting the network) into `rendered/<host>.torrc`,
+# rewriting DataDirectory/ports/log paths for the Shadow host filesystem.
+# Each Shadow host's working directory is `shadow.data/hosts/<host>/`, so
+# `../../../rendered/...` resolves back to this directory when Shadow is run
+# with `-d shadow.data` from here.
+
+general:
+  stop_time: 30m
+  bootstrap_end_time: 2m
+  log_level: info
+  # tor makes heavy use of non-blocking syscalls; modeling their latency
+  # keeps simulated time advancing without busy-loop deadlocks.
+  model_unblocked_syscall_latency: true
+
+network:
+  graph:
+    type: gml
+    inline: |
+      graph [
+        directed 0
+        node [
+          id 0
+          host_bandwidth_down "100 Mbit"
+          host_bandwidth_up "100 Mbit"
+        ]
+        node [
+          id 1
+          host_bandwidth_down "50 Mbit"
+          host_bandwidth_up "50 Mbit"
+        ]
+        node [
+          id 2
+          host_bandwidth_down "20 Mbit"
+          host_bandwidth_up "5 Mbit"
+        ]
+        # Authorities: low-latency, stable.
+        edge [ source 0 target 0 latency "10 ms" jitter "2 ms" packet_loss 0.0 ]
+        # Relays: moderate latency + jitter.
+        edge [ source 1 target 1 latency "40 ms" jitter "10 ms" packet_loss 0.005 ]
+        # Clients: last-mile latency/jitter/loss.
+        edge [ source 2 target 2 latency "80 ms" jitter "30 ms" packet_loss 0.01 ]
+        edge [ source 0 target 1 latency "30 ms" jitter "8 ms" packet_loss 0.002 ]
+        edge [ source 1 target 2 latency "60 ms" jitter "20 ms" packet_loss 0.01 ]
+        edge [ source 0 target 2 latency "70 ms" jitter "20 ms" packet_loss 0.01 ]
+      ]
+
+hosts:
+  # --- 3 directory authorities (mirror s-chat6-min `Authority.getN(3)`) ---
+  auth1: &auth_host
+    network_node_id: 0
+    processes:
+    - path: tor
+      args: -f ../../../rendered/auth1.torrc
+      start_time: 0s
+      expected_final_state: running
+  auth2:
+    <<: *auth_host
+    processes:
+    - path: tor
+      args: -f ../../../rendered/auth2.torrc
+      start_time: 0s
+      expected_final_state: running
+  auth3:
+    <<: *auth_host
+    processes:
+    - path: tor
+      args: -f ../../../rendered/auth3.torrc
+      start_time: 0s
+      expected_final_state: running
+
+  # --- 4 relays (mirror s-chat6-min `NonExitRelay.getN(4)`) ---
+  relay1: &relay_host
+    network_node_id: 1
+    processes:
+    - path: tor
+      args: -f ../../../rendered/relay1.torrc
+      start_time: 5s
+      expected_final_state: running
+  relay2:
+    <<: *relay_host
+    processes:
+    - path: tor
+      args: -f ../../../rendered/relay2.torrc
+      start_time: 5s
+      expected_final_state: running
+  relay3:
+    <<: *relay_host
+    processes:
+    - path: tor
+      args: -f ../../../rendered/relay3.torrc
+      start_time: 5s
+      # CHAOS HOOK — relay death mid-transfer: relay3 is SIGTERMed at
+      # t=15m, killing any circuits routed through it while clients flush
+      # outbox/attachment traffic. tor exits cleanly on SIGTERM, so the
+      # default expected_final_state (exited) holds.
+      shutdown_time: 15m
+      shutdown_signal: SIGTERM
+  relay4:
+    <<: *relay_host
+    processes:
+    - path: tor
+      args: -f ../../../rendered/relay4.torrc
+      start_time: 5s
+      # CHAOS HOOK — HSDir churn: relay4 leaves at t=25m, forcing hidden
+      # service directories to rotate and descriptors to be re-published
+      # and re-fetched for the remainder of the run.
+      shutdown_time: 25m
+      shutdown_signal: SIGTERM
+
+  # --- headless clients (mirror s-chat6-min `Client.getN(2)`) ---
+  # This config runs the client tor processes only. Driving schat-cli
+  # instances inside Shadow (attached to these tors via the control port)
+  # is the documented manual path in README.md — the nightly job validates
+  # the network/chaos behavior, not the full messenger stack.
+  client1: &client_host
+    network_node_id: 2
+    processes:
+    - path: tor
+      args: -f ../../../rendered/client1.torrc
+      start_time: 10s
+      expected_final_state: running
+  client2:
+    <<: *client_host
+    processes:
+    - path: tor
+      args: -f ../../../rendered/client2.torrc
+      # CHAOS HOOK — late joiner: client2 bootstraps at t=10m, after the
+      # first consensus has aged, exercising descriptor fetch against an
+      # authority set that is about to lose relay3.
+      start_time: 10m
+      expected_final_state: running

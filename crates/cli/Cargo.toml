@@ -1,0 +1,17 @@
+[package]
+name = "schat-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Headless CLI for the s//chat6 core"
+
+[[bin]]
+name = "schat-cli"
+path = "src/main.rs"
+
+[dependencies]
+schat-core = { path = "../core" }
+tokio.workspace = true
+tracing-subscriber.workspace = true
+rand.workspace = true
