@@ -1,4 +1,4 @@
-# s//chat6
+# s//chat6 core
 
 **Private 1:1 messaging — no accounts, no servers, no phone numbers.**
 
