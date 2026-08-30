@@ -60,7 +60,7 @@ if ! command -v tor >/dev/null 2>&1; then
 fi
 
 # Authorities on a 9-node mininet often need >60s to report bootstrap 100%.
-export CHUTNEY_START_TIME="${CHUTNEY_START_TIME:-180}"
+export CHUTNEY_START_TIME="${CHUTNEY_START_TIME:-360}"
 
 cd "${CHUTNEY}"
 chmod +x chutney 2>/dev/null || true

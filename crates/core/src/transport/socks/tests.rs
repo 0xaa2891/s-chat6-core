@@ -113,8 +113,13 @@ async fn sender_reuses_stream_within_hold() {
     let host_for_server = host.clone();
     let server = tokio::spawn(async move {
         let mut sock = accept_socks(&listener, &host_for_server).await;
-        let a = echo_read(&mut sock, 259).await;
-        let b = echo_read(&mut sock, 259).await;
+        // Read only: the sender watches the SOCKS read side during hold
+        // and drops the stream on any unexpected bytes (dead-circuit
+        // detection). Echoing would look like that and force a reconnect.
+        let mut a = vec![0u8; 259];
+        sock.read_exact(&mut a).await.unwrap();
+        let mut b = vec![0u8; 259];
+        sock.read_exact(&mut b).await.unwrap();
         (a, b)
     });
 

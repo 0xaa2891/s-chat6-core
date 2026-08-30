@@ -28,6 +28,55 @@ fn tor_bin() -> Option<PathBuf> {
     })
 }
 
+/// First Chutney client `torrc` under `SCHAT_CHUTNEY_NODES` (e.g. `007c`).
+fn chutney_client_torrc() -> Option<PathBuf> {
+    let nodes = PathBuf::from(env::var_os("SCHAT_CHUTNEY_NODES")?);
+    let mut names: Vec<_> = fs::read_dir(&nodes).ok()?.flatten().collect();
+    names.sort_by_key(|e| e.file_name());
+    for ent in names {
+        let name = ent.file_name();
+        let name = name.to_string_lossy();
+        if !name.ends_with('c') {
+            continue;
+        }
+        let torrc = ent.path().join("torrc");
+        if torrc.is_file() {
+            return Some(torrc);
+        }
+    }
+    None
+}
+
+/// Copy a Chutney client torrc into `tmp` with its own data dir and
+/// ports so we don't collide with the already-running mininet client.
+fn torrc_joining_chutney(tmp: &Path) -> Option<PathBuf> {
+    let src = chutney_client_torrc()?;
+    let body = fs::read_to_string(&src).ok()?;
+    let mut out = String::new();
+    for line in body.lines() {
+        let t = line.trim_start();
+        if t.starts_with("DataDirectory")
+            || t.starts_with("SocksPort")
+            || t.starts_with("ControlPort")
+            || t.starts_with("PidFile")
+            || t.starts_with("Log ")
+        {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    let data = tmp.join("data");
+    fs::create_dir_all(&data).ok()?;
+    out.push_str(&format!(
+        "DataDirectory {}\nSocksPort auto\nControlPort auto\nLog notice stdout\nRunAsDaemon 0\n",
+        data.display()
+    ));
+    let dest = tmp.join("torrc");
+    fs::write(&dest, out).ok()?;
+    Some(dest)
+}
+
 fn write_testing_torrc(dir: &Path) -> PathBuf {
     let torrc = dir.join("torrc");
     let data = dir.join("data");
@@ -79,6 +128,7 @@ fn tor_testing_network_bootstrap() {
     let torrc = env::var_os("SCHAT_TOR_SMOKE_TORRC")
         .map(PathBuf::from)
         .filter(|p| p.is_file())
+        .or_else(|| torrc_joining_chutney(&tmp))
         .unwrap_or_else(|| write_testing_torrc(&tmp));
 
     let mut child = Command::new(&tor)
