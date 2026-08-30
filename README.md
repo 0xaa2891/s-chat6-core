@@ -24,7 +24,7 @@ on it for high-stakes communication yet.
 
 ## What the core can do today
 
-Pair in person (QR or typed code, SAS verification), then over Tor:
+Pair in person (QR or typed code), then over Tor:
 text, edits and deletes with tombstones, read receipts, typing and
 presence (RAM-only), chunked attachments with media hygiene (EXIF strip /
 re-encode), sticker packs, profiles, per-relationship policy negotiation,
