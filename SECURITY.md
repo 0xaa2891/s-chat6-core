@@ -6,7 +6,14 @@ Please report vulnerabilities in s//chat6 **privately**. Do not open a public Gi
 
 Email **[0xaa2891@proton.me](mailto:0xaa2891@proton.me)**.
 
-We do not yet publish a project PGP key. Until one is listed here, send the report in plaintext email and we will arrange a better channel if the issue is sensitive.
+### PGP (optional)
+
+Encrypt sensitive reports to our public key:
+
+- **Fingerprint:** `D92F CE2C 0BBC 56CF D808 76C8 1A4E C5A2 51E1 8449`
+- **Key:** [security.asc](security.asc) in this repository (RSA 4096, `0xaa2891@proton.me`)
+
+Plaintext email is fine if PGP is awkward; we can move to an encrypted channel after first contact.
 
 ## Scope
 
