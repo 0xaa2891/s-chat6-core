@@ -25,7 +25,7 @@ on it for high-stakes communication yet.
 
 ## What the core can do today
 
-Pair in person via QR or remotely via a typed code, then over Tor:
+Pair in person via QR or remotely via a pasted code, then over Tor:
 text, edits and deletes with tombstones, read receipts, typing and
 presence (RAM-only), chunked attachments with media hygiene (EXIF strip /
 re-encode), sticker packs, profiles, per-relationship policy negotiation,
@@ -53,7 +53,7 @@ cargo run -p schat-cli -- ping  # headless smoke check
 
 ## Pair via code
 
-One-time exchange. Remotely, the inviter sends a code; the accepter types it in:
+One-time exchange. Remotely, the inviter sends a code; the accepter pastes it in:
 
 ```bash
 schat-cli pair --data-dir alice --offer   # prints code: …
