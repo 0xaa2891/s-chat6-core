@@ -4,7 +4,8 @@
 
 End-to-end encrypted messaging for one-to-one conversations over Tor. Each
 relationship gets its own cryptographic persona, its own v3 onion service,
-and its own session state. Contacts are added in person (QR / pairing code).
+and its own session state. Contacts are added via a one-time QR in person, or a
+pairing code passed over another channel (e.g. DMs).
 There is no signup, directory, cloud inbox, or push provider.
 
 - **Crypto** — libsignal PQXDH + Double Ratchet + SPQR (post-quantum hybrid)
@@ -24,7 +25,7 @@ on it for high-stakes communication yet.
 
 ## What the core can do today
 
-Pair in person (QR or typed code), then over Tor:
+Pair in person via QR or remotely via a pasted code, then over Tor:
 text, edits and deletes with tombstones, read receipts, typing and
 presence (RAM-only), chunked attachments with media hygiene (EXIF strip /
 re-encode), sticker packs, profiles, per-relationship policy negotiation,
@@ -52,7 +53,7 @@ cargo run -p schat-cli -- ping  # headless smoke check
 
 ## Pair via code
 
-One-time, in person. The inviter shows a code; the accepter types it:
+One-time exchange. Remotely, the inviter sends a code; the accepter pastes it in:
 
 ```bash
 schat-cli pair --data-dir alice --offer   # prints code: …
@@ -60,8 +61,7 @@ schat-cli pair --data-dir bob --code <CODE>
 schat-cli pair --data-dir alice --accept-request
 ```
 
-Same ceremony, camera instead of keyboard: `--offer --out qr.png` and
-`--accept qr.png`.
+In person, scan a QR instead: `--offer --out qr.png` and `--accept qr.png`.
 
 ## License
 
